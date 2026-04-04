@@ -1,9 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import styles from './LobbyScreen.module.css'
 
-export default function LobbyScreen({ onJoin }) {
+export default function LobbyScreen({ onJoin, availableRooms, onRefresh }) {
   const [roomId, setRoomId] = useState('')
   const [error, setError]   = useState('')
+
+  // Trigger initial refresh on mount
+  useEffect(() => {
+    onRefresh()
+  }, [onRefresh])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -87,6 +92,40 @@ export default function LobbyScreen({ onJoin }) {
         <p className={styles.hint}>
           Share the same room code with the other person to connect.
         </p>
+
+        <div className={styles.activeRoomsSection}>
+          <div className={styles.roomsHeader}>
+            <h3 className={styles.activeRoomsTitle}>Available Rooms</h3>
+            <button 
+              type="button" 
+              className={styles.refreshBtn} 
+              onClick={onRefresh}
+              title="Refresh room list"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+            </button>
+          </div>
+
+          {availableRooms.length > 0 ? (
+            <div className={styles.roomsGrid}>
+              {availableRooms.map(room => (
+                <button
+                  key={room}
+                  className={styles.roomChip}
+                  onClick={() => onJoin(room)}
+                  title={`Join room ${room}`}
+                >
+                  <span className={styles.roomDot} />
+                  {room}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.noRooms}>No active rooms found.</div>
+          )}
+        </div>
       </div>
 
       {/* Footer */}

@@ -22,9 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Message format (JSON):
  * {
- *   "type":   "join" | "offer" | "answer" | "ice-candidate" | "leave",
- *   "roomId": "<room identifier>",
- *   "payload": { ... }   // SDP or ICE candidate data
+ * "type": "join" | "offer" | "answer" | "ice-candidate" | "leave",
+ * "roomId": "<room identifier>",
+ * "payload": { ... } // SDP or ICE candidate data
  * }
  */
 @Component
@@ -40,36 +40,48 @@ public class SignalingHandler extends TextWebSocketHandler {
     // sessionId → roomId (for cleanup on disconnect)
     private final Map<String, String> sessionRoomMap = new ConcurrentHashMap<>();
 
+    // sessions that are currently in the lobby (not in a room)
+    private final List<WebSocketSession> lobbySessions = new ArrayList<>();
+
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         log.info("New connection: sessionId={}", session.getId());
+        synchronized (lobbySessions) {
+            lobbySessions.add(session);
+        }
+        sendRoomListUpdate();
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         JsonNode node = objectMapper.readTree(message.getPayload());
-        String type   = node.path("type").asText();
+        String type = node.path("type").asText();
         String roomId = node.path("roomId").asText();
 
         log.debug("Message received: type={}, roomId={}, sessionId={}", type, roomId, session.getId());
 
         switch (type) {
-            case "join"          -> handleJoin(session, roomId);
-            case "offer"         -> relay(session, roomId, node);
-            case "answer"        -> relay(session, roomId, node);
+            case "join" -> handleJoin(session, roomId);
+            case "offer" -> relay(session, roomId, node);
+            case "answer" -> relay(session, roomId, node);
             case "ice-candidate" -> relay(session, roomId, node);
-            case "leave"         -> handleLeave(session, roomId);
-            default              -> log.warn("Unknown message type: {}", type);
+            case "leave" -> handleLeave(session, roomId);
+            case "get-rooms" -> sendRoomListUpdate(session); // Manual request
+            default -> log.warn("Unknown message type: {}", type);
         }
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        synchronized (lobbySessions) {
+            lobbySessions.remove(session);
+        }
         String roomId = sessionRoomMap.remove(session.getId());
         if (roomId != null) {
             removeFromRoom(session, roomId);
             notifyPeer(session, roomId, "peer-left");
         }
+        sendRoomListUpdate();
         log.info("Connection closed: sessionId={}, status={}", session.getId(), status);
     }
 
@@ -83,12 +95,33 @@ public class SignalingHandler extends TextWebSocketHandler {
     // -------------------------------------------------------------------------
 
     private void handleJoin(WebSocketSession session, String roomId) throws IOException {
+        synchronized (lobbySessions) {
+            lobbySessions.remove(session);
+        }
+
+        // 1. If session is already in a room, remove them first
+        String oldRoomId = sessionRoomMap.get(session.getId());
+        if (oldRoomId != null && !oldRoomId.equals(roomId)) {
+            removeFromRoom(session, oldRoomId);
+            notifyPeer(session, oldRoomId, "peer-left");
+        }
+
         List<WebSocketSession> room = rooms.computeIfAbsent(roomId, k -> new ArrayList<>());
+
+        // 2. Check if already in this room to prevent "ghost" double-joins
+        if (room.contains(session)) {
+            log.debug("Session {} is already in room {}. Ignoring duplicate join.", session.getId(), roomId);
+            return;
+        }
 
         if (room.size() >= 2) {
             // Room is full — reject
             sendMessage(session, buildMessage("room-full", roomId, null));
             log.warn("Room {} is full. Rejected session {}", roomId, session.getId());
+            // Put them back in lobby
+            synchronized (lobbySessions) {
+                lobbySessions.add(session);
+            }
             return;
         }
 
@@ -101,16 +134,27 @@ public class SignalingHandler extends TextWebSocketHandler {
             log.info("Session {} joined room {} (waiting)", session.getId(), roomId);
         } else {
             // Second peer — tell the first peer to start the offer
-            sendMessage(session, buildMessage("ready", roomId, null));
             WebSocketSession firstPeer = room.get(0);
-            sendMessage(firstPeer, buildMessage("ready", roomId, null));
+
+            // First peer is the initiator
+            ObjectNode initiatorPayload = objectMapper.createObjectNode();
+            initiatorPayload.put("isInitiator", true);
+            sendMessage(firstPeer, buildMessage("ready", roomId, initiatorPayload));
+
+            // Second peer is the receiver
+            ObjectNode receiverPayload = objectMapper.createObjectNode();
+            receiverPayload.put("isInitiator", false);
+            sendMessage(session, buildMessage("ready", roomId, receiverPayload));
+
             log.info("Session {} joined room {} (call starting)", session.getId(), roomId);
         }
+        sendRoomListUpdate();
     }
 
     private void relay(WebSocketSession sender, String roomId, JsonNode node) throws IOException {
         List<WebSocketSession> room = rooms.get(roomId);
-        if (room == null) return;
+        if (room == null)
+            return;
 
         for (WebSocketSession peer : room) {
             if (!peer.getId().equals(sender.getId()) && peer.isOpen()) {
@@ -119,10 +163,14 @@ public class SignalingHandler extends TextWebSocketHandler {
         }
     }
 
-    private void handleLeave(WebSocketSession session, String roomId) {
+    private void handleLeave(WebSocketSession session, String roomId) throws IOException {
         removeFromRoom(session, roomId);
         sessionRoomMap.remove(session.getId());
         notifyPeer(session, roomId, "peer-left");
+        synchronized (lobbySessions) {
+            lobbySessions.add(session);
+        }
+        sendRoomListUpdate();
         log.info("Session {} left room {}", session.getId(), roomId);
     }
 
@@ -138,7 +186,8 @@ public class SignalingHandler extends TextWebSocketHandler {
 
     private void notifyPeer(WebSocketSession leaving, String roomId, String messageType) {
         List<WebSocketSession> room = rooms.get(roomId);
-        if (room == null) return;
+        if (room == null)
+            return;
         for (WebSocketSession peer : room) {
             if (!peer.getId().equals(leaving.getId()) && peer.isOpen()) {
                 try {
@@ -166,5 +215,31 @@ public class SignalingHandler extends TextWebSocketHandler {
             msg.set("payload", payload);
         }
         return objectMapper.writeValueAsString(msg);
+    }
+
+    private void sendRoomListUpdate() throws IOException {
+        synchronized (lobbySessions) {
+            for (WebSocketSession lobbySession : lobbySessions) {
+                if (lobbySession.isOpen()) {
+                    sendRoomListUpdate(lobbySession);
+                }
+            }
+        }
+    }
+
+    private void sendRoomListUpdate(WebSocketSession session) throws IOException {
+        com.fasterxml.jackson.databind.node.ArrayNode roomsArray = objectMapper.createArrayNode();
+        for (Map.Entry<String, List<WebSocketSession>> entry : rooms.entrySet()) {
+            if (entry.getValue().size() == 1) {
+                roomsArray.add(entry.getKey());
+            }
+        }
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("rooms", roomsArray);
+        String json = buildMessage("room-list", "lobby", payload);
+
+        log.debug("Sending room list update to session {}: {}", session.getId(), json);
+        sendMessage(session, json);
     }
 }

@@ -23,20 +23,23 @@ Real-time video and audio calling application. Built with modern technologies fo
 - **JDK 26** installed.
 - **Maven** (configured at `C:\opt\apache-maven-3.9.12` or available in PATH).
 
-### Running the App
-1. **Build the whole project**:
-   ```bash
-   mvn clean install -DskipTests
+## ⚡ One-Click Launch
+The project includes a PowerShell script `launch.ps1` that automates building, starting both servers, and opening the browser.
+
+### How to run:
+1. Open PowerShell.
+2. Navigate to the project root: `cd c:\Users\slaff\projects\iMessanger`
+3. Run the script:
+   ```powershell
+   .\launch.ps1
    ```
-2. **Start the Backend**:
-   ```bash
-   mvn spring-boot:run -pl server
-   ```
-3. **Start the Frontend**:
-   ```bash
-   cd web
-   npm run dev -- --host
-   ```
+   *(Note: You might need to allow script execution: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` if it fails)*
+
+### Manual Running
+If you prefer running manually:
+1. **Build**: `mvn clean install -DskipTests`
+2. **Backend**: `mvn spring-boot:run -pl server`
+3. **Frontend**: `cd web; npm run dev -- --host`
 
 ### 🔒 HTTPS & WebRTC
 The project uses `@vitejs/plugin-basic-ssl` to enable HTTPS in the local network. This is required by browsers to allow camera/microphone access on non-localhost origins.

@@ -1,0 +1,8 @@
+{
+  "name": "imessanger-root",
+  "version": "1.0.0",
+  "description": "Root package for quick launch",
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File .\\launch.ps1"
+  }
+}

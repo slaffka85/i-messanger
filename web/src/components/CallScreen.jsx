@@ -19,10 +19,9 @@ const STATUS = {
   ERROR:        'Connection error.',
 }
 
-export default function CallScreen({ roomId, onLeave }) {
+export default function CallScreen({ roomId, onLeave, ws }) {
   const localVideoRef  = useRef(null)
   const remoteVideoRef = useRef(null)
-  const wsRef          = useRef(null)   // WebSocket
   const pcRef          = useRef(null)   // RTCPeerConnection
   const localStreamRef = useRef(null)   // MediaStream (local)
   const makingOfferRef = useRef(false)
@@ -35,10 +34,10 @@ export default function CallScreen({ roomId, onLeave }) {
 
   // ── Helpers ────────────────────────────────────────────────────
   const sendSignal = useCallback((msg) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ ...msg, roomId }))
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ ...msg, roomId }))
     }
-  }, [roomId])
+  }, [roomId, ws])
 
   const createPeerConnection = useCallback(() => {
     const pc = new RTCPeerConnection(ICE_SERVERS)
@@ -90,8 +89,10 @@ export default function CallScreen({ roomId, onLeave }) {
 
   // ── WebSocket signaling ────────────────────────────────────────
   useEffect(() => {
-    // 1. Get camera + mic first
+    if (!ws) return
+
     const init = async () => {
+      // 1. Get camera + mic
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         localStreamRef.current = stream
@@ -104,18 +105,13 @@ export default function CallScreen({ roomId, onLeave }) {
         return
       }
 
-      // 2. Open WebSocket
-      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const wsUrl = `${protocol}://${window.location.host}/signal`
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
+      // 2. Join room
+      sendSignal({ type: 'join' })
 
-      ws.onopen = () => {
-        sendSignal({ type: 'join' })
-      }
-
-      ws.onmessage = async (event) => {
+      // 3. Setup message handler
+      const handleMessage = async (event) => {
         const msg = JSON.parse(event.data)
+        if (msg.roomId !== roomId && msg.roomId !== 'lobby') return
 
         switch (msg.type) {
           case 'waiting':
@@ -123,21 +119,16 @@ export default function CallScreen({ roomId, onLeave }) {
             break
 
           case 'ready':
-            // Both peers in room. The one who sent the offer starts the call.
+            // One peer initiates, the other waits for offer.
             createPeerConnection()
-            // Add local tracks before offer
-            if (localStreamRef.current && pcRef.current) {
-              for (const track of localStreamRef.current.getTracks()) {
-                pcRef.current.addTrack(track, localStreamRef.current)
-              }
+            if (msg.payload?.isInitiator) {
+              await startCall()
             }
-            await startCall()
             break
 
           case 'offer': {
             if (!pcRef.current) {
               createPeerConnection()
-              // Add local tracks to receive connection
               if (localStreamRef.current) {
                 for (const track of localStreamRef.current.getTracks()) {
                   pcRef.current.addTrack(track, localStreamRef.current)
@@ -149,7 +140,7 @@ export default function CallScreen({ roomId, onLeave }) {
               makingOfferRef.current ||
               pc.signalingState !== 'stable'
 
-            if (offerCollision) return // Polite peer — ignore colliding offer
+            if (offerCollision) return 
 
             await pc.setRemoteDescription(new RTCSessionDescription(msg.payload))
             const answer = await pc.createAnswer()
@@ -185,22 +176,22 @@ export default function CallScreen({ roomId, onLeave }) {
         }
       }
 
-      ws.onerror = () => setStatus(STATUS.ERROR)
-      ws.onclose = () => {
-        if (status === STATUS.IN_CALL) setStatus(STATUS.PEER_LEFT)
+      ws.addEventListener('message', handleMessage)
+      return () => {
+        ws.removeEventListener('message', handleMessage)
       }
     }
 
-    init()
+    const cleanup = init()
 
     return () => {
-      // Cleanup
+      cleanup.then(unsub => unsub?.())
+      sendSignal({ type: 'leave' }) // Notify server about intentional exit
       localStreamRef.current?.getTracks().forEach(t => t.stop())
       pcRef.current?.close()
-      wsRef.current?.close()
+      pcRef.current = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId])
+  }, [roomId, ws, createPeerConnection, sendSignal, startCall])
 
   // ── Call duration timer ────────────────────────────────────────
   useEffect(() => {
