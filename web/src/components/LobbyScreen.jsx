@@ -1,31 +1,8 @@
-import { useState, useEffect } from 'react'
+import React from 'react'
+import TelephonyAudio from '../utils/TelephonyAudio'
 import styles from './LobbyScreen.module.css'
 
-export default function LobbyScreen({ onJoin, availableRooms, onRefresh }) {
-  const [roomId, setRoomId] = useState('')
-  const [error, setError]   = useState('')
-
-  // Trigger initial refresh on mount
-  useEffect(() => {
-    onRefresh()
-  }, [onRefresh])
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const trimmed = roomId.trim()
-    if (!trimmed) {
-      setError('Please enter a room code.')
-      return
-    }
-    onJoin(trimmed)
-  }
-
-  const randomRoom = () => {
-    const id = Math.random().toString(36).slice(2, 8).toUpperCase()
-    setRoomId(id)
-    setError('')
-  }
-
+export default function LobbyScreen({ myId, onlineClients, onCall, audioStatus }) {
   return (
     <div className={styles.wrapper}>
       {/* Logo / branding */}
@@ -47,89 +24,82 @@ export default function LobbyScreen({ onJoin, availableRooms, onRefresh }) {
 
       {/* Card */}
       <div className={styles.card}>
-        <p className={styles.subtitle}>
-          Enter a room code to start or join a video call
-        </p>
-
-        <form onSubmit={handleSubmit} className={styles.form} noValidate>
-          <label htmlFor="roomId" className={styles.label}>Room Code</label>
-          <div className={styles.inputRow}>
-            <input
-              id="roomId"
-              type="text"
-              className={styles.input}
-              placeholder="e.g. ABC123"
-              value={roomId}
-              onChange={(e) => { setRoomId(e.target.value.toUpperCase()); setError('') }}
-              maxLength={20}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <button
-              type="button"
-              id="btn-random-room"
-              className={styles.btnSecondary}
-              onClick={randomRoom}
-              title="Generate random room"
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <p className={styles.subtitle} style={{ margin: 0 }}>
+            Welcome, <strong>{myId}</strong>.
+          </p>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {/* Audio Status Badge */}
+            <div 
+              className={audioStatus !== 'running' ? styles.badgePulse : ''}
+              onClick={() => TelephonyAudio.init()}
+              style={{ 
+                padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold',
+                background: audioStatus === 'running' ? 'rgba(35, 209, 96, 0.1)' : 'rgba(255, 59, 48, 0.15)',
+                color: audioStatus === 'running' ? '#23d160' : '#ff3b30',
+                border: `1px solid ${audioStatus === 'running' ? 'rgba(35, 209, 96, 0.2)' : 'rgba(255, 59, 48, 0.3)'}`,
+                display: 'flex', alignItems: 'center', gap: '4px',
+                cursor: audioStatus !== 'running' ? 'pointer' : 'default',
+                transition: 'all 0.2s ease',
+                userSelect: 'none'
+              }}
+              title={audioStatus === 'running' ? 'Sound System Ready' : 'Sound Blocked by Browser. Click to Enable.'}
             >
-              🎲
-            </button>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
+              {audioStatus === 'running' ? 'SOUND: ON' : 'SOUND: OFF (CLICK)'}
+            </div>
+            
+            {/* Notifications Status Badge */}
+            <div 
+              style={{ 
+                padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold',
+                background: Notification.permission === 'granted' ? 'rgba(35, 209, 96, 0.1)' : 'rgba(108, 99, 255, 0.1)',
+                color: Notification.permission === 'granted' ? '#23d160' : '#8b8bba',
+                border: `1px solid ${Notification.permission === 'granted' ? 'rgba(35, 209, 96, 0.2)' : 'rgba(108, 99, 255, 0.2)'}`,
+                userSelect: 'none'
+              }}
+              title={`Notification permission: ${Notification.permission}`}
+            >
+              NOTIFS: {Notification.permission.toUpperCase()}
+            </div>
           </div>
-
-          {error && <p className={styles.error}>{error}</p>}
-
-          <button id="btn-join-call" type="submit" className={styles.btnPrimary}>
-            <span className={styles.btnIcon}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="23 7 16 12 23 17 23 7"/>
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-              </svg>
-            </span>
-            Join Call
-          </button>
-        </form>
-
-        <p className={styles.hint}>
-          Share the same room code with the other person to connect.
-        </p>
+        </div>
 
         <div className={styles.activeRoomsSection}>
           <div className={styles.roomsHeader}>
-            <h3 className={styles.activeRoomsTitle}>Available Rooms</h3>
-            <button 
-              type="button" 
-              className={styles.refreshBtn} 
-              onClick={onRefresh}
-              title="Refresh room list"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-              </svg>
-            </button>
+            <h3 className={styles.activeRoomsTitle}>Online Clients</h3>
           </div>
 
-          {availableRooms.length > 0 ? (
+          {onlineClients.length > 0 ? (
             <div className={styles.roomsGrid}>
-              {availableRooms.map(room => (
-                <button
-                  key={room}
-                  className={styles.roomChip}
-                  onClick={() => onJoin(room)}
-                  title={`Join room ${room}`}
-                >
-                  <span className={styles.roomDot} />
-                  {room}
-                </button>
+              {onlineClients.map(clientId => (
+                <div key={clientId} className={styles.clientItem}>
+                  <div className={styles.clientInfo}>
+                    <span className={styles.roomDot} />
+                    <span className={styles.clientIdText}>{clientId}</span>
+                  </div>
+                  <button
+                    className={styles.btnPrimarySmall}
+                    onClick={() => onCall(clientId)}
+                    title={`Call ${clientId}`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="23 7 16 12 23 17 23 7"/>
+                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                    </svg>
+                    Call
+                  </button>
+                </div>
               ))}
             </div>
           ) : (
-            <div className={styles.noRooms}>No active rooms found.</div>
+            <div className={styles.noRooms}>No other clients online.</div>
           )}
         </div>
       </div>
 
       {/* Footer */}
-      <p className={styles.footer}>End-to-end encrypted · Peer-to-peer · No account needed</p>
+      <p className={styles.footer}>End-to-end encrypted · Peer-to-peer · Direct Calls</p>
     </div>
   )
 }

@@ -11,20 +11,24 @@ const ICE_SERVERS = {
 
 // ── States ────────────────────────────────────────────────────────
 const STATUS = {
-  CONNECTING:   'Connecting to server…',
-  WAITING:      'Waiting for the other person…',
+  CONNECTING:   'Connecting to peer…',
+  WAITING:      'Waiting for response…',
   CALLING:      'Starting call…',
   IN_CALL:      'In call',
   PEER_LEFT:    'The other person left the call.',
   ERROR:        'Connection error.',
 }
 
-export default function CallScreen({ roomId, onLeave, ws }) {
+export default function CallScreen({ myId, targetId, isInitiator, isWaiting, onLeave, ws }) {
   const localVideoRef  = useRef(null)
   const remoteVideoRef = useRef(null)
   const pcRef          = useRef(null)   // RTCPeerConnection
   const localStreamRef = useRef(null)   // MediaStream (local)
   const makingOfferRef = useRef(false)
+  
+  // To handle messages that arrive before PeerConnection is ready
+  const pendingCandidatesRef = useRef([])
+  const remoteOfferRef = useRef(null)
 
   const [status, setStatus]       = useState(STATUS.CONNECTING)
   const [isMuted, setIsMuted]     = useState(false)
@@ -35,11 +39,30 @@ export default function CallScreen({ roomId, onLeave, ws }) {
   // ── Helpers ────────────────────────────────────────────────────
   const sendSignal = useCallback((msg) => {
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ ...msg, roomId }))
+      const payload = { ...msg, targetId };
+      console.log('>>> [WS SEND]', payload.type);
+      ws.send(JSON.stringify(payload))
     }
-  }, [roomId, ws])
+  }, [targetId, ws])
+
+  const stopLocalStream = useCallback(() => {
+    if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+    }
+    if (localStreamRef.current) {
+        console.log('>>> [ACTION] Force stopping all tracks');
+        localStreamRef.current.getTracks().forEach(track => {
+            track.stop();
+            track.enabled = false;
+        });
+        localStreamRef.current = null;
+    }
+  }, [])
 
   const createPeerConnection = useCallback(() => {
+    if (pcRef.current) return pcRef.current; 
+
+    console.log('>>> [WebRTC] Creating PeerConnection');
     const pc = new RTCPeerConnection(ICE_SERVERS)
 
     pc.onicecandidate = ({ candidate }) => {
@@ -49,6 +72,7 @@ export default function CallScreen({ roomId, onLeave, ws }) {
     }
 
     pc.ontrack = (event) => {
+      console.log('>>> [WebRTC] Remote track received');
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0]
         setRemoteReady(true)
@@ -57,8 +81,20 @@ export default function CallScreen({ roomId, onLeave, ws }) {
     }
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      console.log('>>> [WebRTC] Connection state:', pc.connectionState);
+      const isLost = ['disconnected', 'failed', 'closed'].includes(pc.connectionState);
+      
+      if (isLost) {
         setStatus(STATUS.PEER_LEFT)
+        stopLocalStream()
+        // Wait a bit to show the message then leave
+        setTimeout(() => {
+          onLeave()
+        }, 1500)
+      }
+      
+      if (pc.connectionState === 'connected') {
+          setStatus(STATUS.IN_CALL)
       }
     }
 
@@ -66,109 +102,113 @@ export default function CallScreen({ roomId, onLeave, ws }) {
     return pc
   }, [sendSignal])
 
-  const startCall = useCallback(async () => {
-    setStatus(STATUS.CALLING)
-    const pc = pcRef.current || createPeerConnection()
-
-    // Add local tracks to the peer connection
-    if (localStreamRef.current) {
-      for (const track of localStreamRef.current.getTracks()) {
+  const addLocalTracksToPC = useCallback((pc) => {
+    if (!localStreamRef.current) return;
+    console.log('>>> [WebRTC] Adding local tracks to PC');
+    for (const track of localStreamRef.current.getTracks()) {
+      const alreadyAdded = pc.getSenders().some(s => s.track === track)
+      if (!alreadyAdded) {
         pc.addTrack(track, localStreamRef.current)
       }
     }
+  }, [])
+
+  const startCall = useCallback(async () => {
+    console.log('>>> [ACTION] Initiating call (startCall)');
+    setStatus(STATUS.CALLING)
+    const pc = createPeerConnection()
+    addLocalTracksToPC(pc)
 
     try {
       makingOfferRef.current = true
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       sendSignal({ type: 'offer', payload: pc.localDescription })
+    } catch (e) {
+      console.error('Failed to start call:', e)
     } finally {
       makingOfferRef.current = false
     }
-  }, [createPeerConnection, sendSignal])
+  }, [createPeerConnection, addLocalTracksToPC, sendSignal])
 
-  // ── WebSocket signaling ────────────────────────────────────────
+  const processOffer = useCallback(async (offerPayload) => {
+    const pc = createPeerConnection()
+    addLocalTracksToPC(pc)
+    
+    const offerCollision = makingOfferRef.current || pc.signalingState !== 'stable'
+    if (offerCollision) {
+        console.warn('>>> [WebRTC] Offer collision detected');
+        return 
+    }
+
+    console.log('>>> [WebRTC] Processing offer and sending answer');
+    await pc.setRemoteDescription(new RTCSessionDescription(offerPayload))
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    sendSignal({ type: 'answer', payload: pc.localDescription })
+    
+    // Process any candidates that arrived early
+    while (pendingCandidatesRef.current.length > 0) {
+        const cand = pendingCandidatesRef.current.shift()
+        await pc.addIceCandidate(new RTCIceCandidate(cand))
+    }
+  }, [createPeerConnection, addLocalTracksToPC, sendSignal])
+
+  // ── WebSocket signaling listener (Synchronous setup) ───────────
   useEffect(() => {
     if (!ws) return
 
-    const init = async () => {
-      // 1. Get camera + mic
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        localStreamRef.current = stream
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream
-        }
-      } catch (err) {
-        console.error('Media error:', err)
-        setStatus('Camera/mic access denied. Please allow permissions and reload.')
-        return
-      }
-
-      // 2. Join room
-      sendSignal({ type: 'join' })
-
-      // 3. Setup message handler
-      const handleMessage = async (event) => {
+    const handleMessage = async (event) => {
         const msg = JSON.parse(event.data)
-        if (msg.roomId !== roomId && msg.roomId !== 'lobby') return
+        if (msg.fromId !== targetId) return
+        
+        console.log('>>> [SIGNAL RECEIVED]', msg.type);
 
         switch (msg.type) {
-          case 'waiting':
-            setStatus(STATUS.WAITING)
-            break
-
-          case 'ready':
-            // One peer initiates, the other waits for offer.
-            createPeerConnection()
-            if (msg.payload?.isInitiator) {
-              await startCall()
-            }
-            break
-
           case 'offer': {
-            if (!pcRef.current) {
-              createPeerConnection()
-              if (localStreamRef.current) {
-                for (const track of localStreamRef.current.getTracks()) {
-                  pcRef.current.addTrack(track, localStreamRef.current)
-                }
-              }
+            console.log('>>> [WebRTC] Offer received, saving as pending');
+            remoteOfferRef.current = msg.payload
+            
+            // If media is already ready, process now
+            if (localStreamRef.current) {
+                processOffer(msg.payload)
             }
-            const pc = pcRef.current
-            const offerCollision =
-              makingOfferRef.current ||
-              pc.signalingState !== 'stable'
-
-            if (offerCollision) return 
-
-            await pc.setRemoteDescription(new RTCSessionDescription(msg.payload))
-            const answer = await pc.createAnswer()
-            await pc.setLocalDescription(answer)
-            sendSignal({ type: 'answer', payload: pc.localDescription })
-            setStatus(STATUS.CALLING)
             break
           }
 
           case 'answer':
             if (pcRef.current?.signalingState === 'have-local-offer') {
               await pcRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload))
-            }
-            break
-
-          case 'ice-candidate':
-            if (pcRef.current && msg.payload) {
-              try {
-                await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.payload))
-              } catch (e) {
-                if (!makingOfferRef.current) console.error('ICE error:', e)
+              // Process any candidates that arrived early
+              while (pendingCandidatesRef.current.length > 0) {
+                  const cand = pendingCandidatesRef.current.shift()
+                  await pcRef.current.addIceCandidate(new RTCIceCandidate(cand))
               }
             }
             break
 
+          case 'ice-candidate':
+            if (msg.payload) {
+                const pc = pcRef.current
+                if (pc && pc.remoteDescription) {
+                    try {
+                        await pc.addIceCandidate(new RTCIceCandidate(msg.payload))
+                    } catch (e) {
+                        console.error('ICE error:', e)
+                    }
+                } else {
+                    console.log('>>> [WebRTC] Queuing ICE candidate');
+                    pendingCandidatesRef.current.push(msg.payload)
+                }
+            }
+            break
+
           case 'peer-left':
-          case 'room-full':
-            setStatus(msg.type === 'room-full' ? 'Room is full (max 2 people).' : STATUS.PEER_LEFT)
+            console.log('>>> [ACTION] Peer left (received signal)');
+            stopLocalStream();
+            setStatus(STATUS.PEER_LEFT)
+            // Auto return to lobby after 1.5s
+            setTimeout(() => onLeave(), 1500);
             break
 
           default:
@@ -177,27 +217,63 @@ export default function CallScreen({ roomId, onLeave, ws }) {
       }
 
       ws.addEventListener('message', handleMessage)
+      
       return () => {
-        ws.removeEventListener('message', handleMessage)
+          ws.removeEventListener('message', handleMessage)
+          stopLocalStream();
+          pcRef.current?.close()
+          pcRef.current = null
+          pendingCandidatesRef.current = []
       }
-    }
+  }, [ws, targetId, createPeerConnection, addLocalTracksToPC, sendSignal, stopLocalStream, onLeave])
 
-    const cleanup = init()
+  // ── Camera Initialization ─────────────────────────────────────
+  useEffect(() => {
+    const getMedia = async () => {
+        try {
+            console.log('>>> [ACTION] Fetching media stream');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            localStreamRef.current = stream
+            if (localVideoRef.current) {
+                localVideoRef.current.srcObject = stream
+            }
+            // If PeerConnection already exists (e.g. we got an offer while getting media), add tracks now
+            if (pcRef.current) {
+                addLocalTracksToPC(pcRef.current)
+            }
+            // If we have a pending offer, process it now that media is ready
+            if (remoteOfferRef.current) {
+                processOffer(remoteOfferRef.current)
+            }
+        } catch (err) {
+            console.error('Media error:', err)
+            setStatus('Camera/mic access denied.')
+        }
+    }
+    getMedia()
 
     return () => {
-      cleanup.then(unsub => unsub?.())
-      sendSignal({ type: 'leave' }) // Notify server about intentional exit
-      localStreamRef.current?.getTracks().forEach(t => t.stop())
-      pcRef.current?.close()
-      pcRef.current = null
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(t => t.stop());
+            localStreamRef.current = null;
+        }
     }
-  }, [roomId, ws, createPeerConnection, sendSignal, startCall])
+  }, [addLocalTracksToPC, processOffer])
+
+  // ── Call Initiation logic ──────────────────────────────────
+  useEffect(() => {
+     // Wait until NOT in waiting mode AND is initiator
+     if (isInitiator && !isWaiting && localStreamRef.current) {
+         startCall()
+     }
+  }, [isInitiator, isWaiting, startCall])
 
   // ── Call duration timer ────────────────────────────────────────
   useEffect(() => {
-    if (status !== STATUS.IN_CALL) return
-    const id = setInterval(() => setDuration(d => d + 1), 1000)
-    return () => clearInterval(id)
+    if (status === STATUS.IN_CALL) {
+        const id = setInterval(() => setDuration(d => d + 1), 1000)
+        return () => clearInterval(id)
+    }
   }, [status])
 
   const formatDuration = (s) => {
@@ -206,7 +282,6 @@ export default function CallScreen({ roomId, onLeave, ws }) {
     return `${m}:${sec}`
   }
 
-  // ── Controls ───────────────────────────────────────────────────
   const toggleMute = () => {
     const audioTrack = localStreamRef.current?.getAudioTracks()[0]
     if (audioTrack) {
@@ -223,19 +298,10 @@ export default function CallScreen({ roomId, onLeave, ws }) {
     }
   }
 
-  const handleLeave = () => {
-    sendSignal({ type: 'leave' })
-    localStreamRef.current?.getTracks().forEach(t => t.stop())
-    pcRef.current?.close()
-    wsRef.current?.close()
-    onLeave()
-  }
-
   // ── Render ─────────────────────────────────────────────────────
   return (
     <div className={styles.room}>
 
-      {/* Remote video — full background */}
       <div className={`${styles.remoteContainer} ${!remoteReady ? styles.empty : ''}`}>
         <video
           ref={remoteVideoRef}
@@ -247,13 +313,12 @@ export default function CallScreen({ roomId, onLeave, ws }) {
         {!remoteReady && (
           <div className={styles.remoteOverlay}>
             <div className={styles.spinner} />
-            <p className={styles.statusText}>{status}</p>
-            <p className={styles.roomBadge}>Room: <strong>{roomId}</strong></p>
+            <p className={styles.statusText}>{isWaiting ? `Calling ${targetId}...` : status}</p>
+            <p className={styles.roomBadge}>{isWaiting ? 'Waiting for answer' : `Target: ${targetId}`}</p>
           </div>
         )}
       </div>
 
-      {/* Local video — pip */}
       <div className={`${styles.localContainer} ${isCamOff ? styles.camOff : ''}`}>
         <video
           ref={localVideoRef}
@@ -266,7 +331,6 @@ export default function CallScreen({ roomId, onLeave, ws }) {
         {isCamOff && <div className={styles.camOffLabel}>Camera off</div>}
       </div>
 
-      {/* Top bar */}
       <div className={styles.topBar}>
         <div className={styles.brand}>
           <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
@@ -286,42 +350,34 @@ export default function CallScreen({ roomId, onLeave, ws }) {
             {formatDuration(duration)}
           </div>
         )}
-        <div className={styles.roomTag}>#{roomId}</div>
+        <div className={styles.roomTag}>Peer: {targetId}</div>
       </div>
 
-      {/* Controls */}
       <div className={styles.controls}>
         <button
-          id="btn-toggle-mute"
           className={`${styles.ctrlBtn} ${isMuted ? styles.ctrlBtnOff : ''}`}
           onClick={toggleMute}
-          title={isMuted ? 'Unmute' : 'Mute'}
         >
-          {isMuted
-            ? <MicOffIcon />
-            : <MicIcon />}
+          {isMuted ? <MicOffIcon /> : <MicIcon />}
           <span>{isMuted ? 'Unmute' : 'Mute'}</span>
         </button>
 
         <button
-          id="btn-end-call"
           className={styles.ctrlBtnEnd}
-          onClick={handleLeave}
-          title="End call"
+          onClick={() => {
+            stopLocalStream();
+            onLeave();
+          }}
         >
           <PhoneOffIcon />
           <span>End</span>
         </button>
 
         <button
-          id="btn-toggle-camera"
           className={`${styles.ctrlBtn} ${isCamOff ? styles.ctrlBtnOff : ''}`}
           onClick={toggleCamera}
-          title={isCamOff ? 'Turn on camera' : 'Turn off camera'}
         >
-          {isCamOff
-            ? <VideoOffIcon />
-            : <VideoIcon />}
+          {isCamOff ? <VideoOffIcon /> : <VideoIcon />}
           <span>{isCamOff ? 'Cam On' : 'Cam Off'}</span>
         </button>
       </div>
@@ -329,7 +385,6 @@ export default function CallScreen({ roomId, onLeave, ws }) {
   )
 }
 
-// ── Inline SVG icons ──────────────────────────────────────────────
 function MicIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

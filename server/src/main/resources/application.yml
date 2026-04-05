@@ -8,4 +8,19 @@ logging:
 
 spring:
   application:
-    name: iMessanger Server
+    name: i-messanger
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/imessanger
+    username: user
+    password: password
+    driver-class-name: org.postgresql.Driver
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: imessanger-storage

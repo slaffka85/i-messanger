@@ -22,28 +22,18 @@ Write-Host ">>> Building project (skipping tests for speed)..." -ForegroundColor
 Set-Location $PROJECT_ROOT
 & mvn install -DskipTests
 
-# --- Detect Local IP ---
-# Use the gateway route to find the real primary IP address
-$localIp = (Get-NetRoute -DestinationPrefix 0.0.0.0/0 -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1).IPAddress
-
-if (-not $localIp) {
-    # Fallback to general detection if no gateway found
-    $localIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { 
-        $_.InterfaceAlias -match "Wi-Fi|Ethernet" -and 
-        $_.InterfaceAlias -notmatch "VirtualBox|VMware|Pseudo|Loopback" -and 
-        $_.IPAddress -notmatch "^127\." -and 
-        $_.IPAddress -notmatch "^169\.254\." 
-    } | Select-Object -First 1).IPAddress
-}
+# --- Detect Local IP (bulletproof) ---
+$localIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback' -and $_.IPAddress -notmatch '^(169\.254|127|192\.168\.56|172.25\.240)\.' } | Select-Object -First 1).IPAddress
 
 if (-not $localIp) {
     $localIp = "localhost"
 }
 
-$frontendUrl = "https://$localIp:5173/"
-$backendUrl  = "http://$localIp:8080/"
-
 Write-Host ">>> Local IP detected: $localIp" -ForegroundColor Green
+
+$frontendUrl = "https://${localIp}:5173/"
+$backendUrl  = "http://${localIp}:8080/"
+
 
 # --- Start Backend ---
 Write-Host ">>> Starting Backend (Spring Boot) in a new window..." -ForegroundColor Cyan
@@ -70,4 +60,21 @@ Write-Host "====================================================`n" -ForegroundC
 
 Write-Host ">>> Opening browser in 5 seconds..." -ForegroundColor Gray
 Start-Sleep -Seconds 5
-Start-Process $frontendUrl
+
+$chromePaths = @(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe"
+)
+
+$chromePath = $chromePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if ($chromePath) {
+    Write-Host ">>> Launching Chrome (will open new tab if already running)..." -ForegroundColor Cyan
+    Start-Process $chromePath $frontendUrl
+} else {
+    Write-Host ">>> Chrome not found → fallback to default browser" -ForegroundColor Yellow
+    Start-Process $frontendUrl
+}
+
+Write-Host "`n>>> Done! Press Enter to close this log window..." -ForegroundColor White
+Read-Host
