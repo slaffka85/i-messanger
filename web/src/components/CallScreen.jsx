@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import styles from './CallScreen.module.css'
+import Chat from './Chat'
 
 // ── ICE / STUN configuration ──────────────────────────────────────
 const ICE_SERVERS = {
@@ -300,87 +301,92 @@ export default function CallScreen({ myId, targetId, isInitiator, isWaiting, onL
 
   // ── Render ─────────────────────────────────────────────────────
   return (
-    <div className={styles.room}>
+    <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      <div style={{ flex: 1, position: 'relative' }}>
+        <div className={styles.room}>
 
-      <div className={`${styles.remoteContainer} ${!remoteReady ? styles.empty : ''}`}>
-        <video
-          ref={remoteVideoRef}
-          id="remote-video"
-          className={styles.remoteVideo}
-          autoPlay
-          playsInline
-        />
-        {!remoteReady && (
-          <div className={styles.remoteOverlay}>
-            <div className={styles.spinner} />
-            <p className={styles.statusText}>{isWaiting ? `Calling ${targetId}...` : status}</p>
-            <p className={styles.roomBadge}>{isWaiting ? 'Waiting for answer' : `Target: ${targetId}`}</p>
+          <div className={`${styles.remoteContainer} ${!remoteReady ? styles.empty : ''}`}>
+            <video
+              ref={remoteVideoRef}
+              id="remote-video"
+              className={styles.remoteVideo}
+              autoPlay
+              playsInline
+            />
+            {!remoteReady && (
+              <div className={styles.remoteOverlay}>
+                <div className={styles.spinner} />
+                <p className={styles.statusText}>{isWaiting ? `Calling ${targetId}...` : status}</p>
+                <p className={styles.roomBadge}>{isWaiting ? 'Waiting for answer' : `Target: ${targetId}`}</p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className={`${styles.localContainer} ${isCamOff ? styles.camOff : ''}`}>
-        <video
-          ref={localVideoRef}
-          id="local-video"
-          className={styles.localVideo}
-          autoPlay
-          playsInline
-          muted
-        />
-        {isCamOff && <div className={styles.camOffLabel}>Camera off</div>}
-      </div>
+          <div className={`${styles.localContainer} ${isCamOff ? styles.camOff : ''}`}>
+            <video
+              ref={localVideoRef}
+              id="local-video"
+              className={styles.localVideo}
+              autoPlay
+              playsInline
+              muted
+            />
+            {isCamOff && <div className={styles.camOffLabel}>Camera off</div>}
+          </div>
 
-      <div className={styles.topBar}>
-        <div className={styles.brand}>
-          <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="16" fill="url(#tlg)" />
-            <path d="M9 12h14M9 16h10M9 20h7" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-            <defs>
-              <linearGradient id="tlg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#6c63ff"/><stop offset="1" stopColor="#a78bfa"/>
-              </linearGradient>
-            </defs>
-          </svg>
-          <span>iMessanger</span>
+          <div className={styles.topBar}>
+            <div className={styles.brand}>
+              <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+                <circle cx="16" cy="16" r="16" fill="url(#tlg)" />
+                <path d="M9 12h14M9 16h10M9 20h7" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
+                <defs>
+                  <linearGradient id="tlg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#6c63ff"/><stop offset="1" stopColor="#a78bfa"/>
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span>iMessanger</span>
+            </div>
+            {status === STATUS.IN_CALL && (
+              <div className={styles.timer}>
+                <span className={styles.dot} />
+                {formatDuration(duration)}
+              </div>
+            )}
+            <div className={styles.roomTag}>Peer: {targetId}</div>
+          </div>
+
+          <div className={styles.controls}>
+            <button
+              className={`${styles.ctrlBtn} ${isMuted ? styles.ctrlBtnOff : ''}`}
+              onClick={toggleMute}
+            >
+              {isMuted ? <MicOffIcon /> : <MicIcon />}
+              <span>{isMuted ? 'Unmute' : 'Mute'}</span>
+            </button>
+
+            <button
+              className={styles.ctrlBtnEnd}
+              onClick={() => {
+                stopLocalStream();
+                onLeave();
+              }}
+            >
+              <PhoneOffIcon />
+              <span>End</span>
+            </button>
+
+            <button
+              className={`${styles.ctrlBtn} ${isCamOff ? styles.ctrlBtnOff : ''}`}
+              onClick={toggleCamera}
+            >
+              {isCamOff ? <VideoOffIcon /> : <VideoIcon />}
+              <span>{isCamOff ? 'Cam On' : 'Cam Off'}</span>
+            </button>
+          </div>
         </div>
-        {status === STATUS.IN_CALL && (
-          <div className={styles.timer}>
-            <span className={styles.dot} />
-            {formatDuration(duration)}
-          </div>
-        )}
-        <div className={styles.roomTag}>Peer: {targetId}</div>
       </div>
-
-      <div className={styles.controls}>
-        <button
-          className={`${styles.ctrlBtn} ${isMuted ? styles.ctrlBtnOff : ''}`}
-          onClick={toggleMute}
-        >
-          {isMuted ? <MicOffIcon /> : <MicIcon />}
-          <span>{isMuted ? 'Unmute' : 'Mute'}</span>
-        </button>
-
-        <button
-          className={styles.ctrlBtnEnd}
-          onClick={() => {
-            stopLocalStream();
-            onLeave();
-          }}
-        >
-          <PhoneOffIcon />
-          <span>End</span>
-        </button>
-
-        <button
-          className={`${styles.ctrlBtn} ${isCamOff ? styles.ctrlBtnOff : ''}`}
-          onClick={toggleCamera}
-        >
-          {isCamOff ? <VideoOffIcon /> : <VideoIcon />}
-          <span>{isCamOff ? 'Cam On' : 'Cam Off'}</span>
-        </button>
-      </div>
+      <Chat myId={myId} targetId={targetId} ws={ws} />
     </div>
   )
 }

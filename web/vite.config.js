@@ -15,7 +15,36 @@ export default defineConfig({
         target: 'ws://localhost:8080',
         ws: true,
         changeOrigin: true,
+        secure: false,
       },
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        headers: {
+          'X-Forwarded-Proto': 'https'
+        }
+      },
+      '/login': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        headers: {
+          'X-Forwarded-Proto': 'https'
+        }
+      },
+      '/oauth2': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        secure: false,
+        headers: {
+          'X-Forwarded-Proto': 'https'
+        }
+      },
+      '/ws': {
+        target: 'http://localhost:8080',
+        ws: true
+      }
     },
   },
 })

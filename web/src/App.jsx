@@ -1,20 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import LobbyScreen from './components/LobbyScreen.jsx'
 import CallScreen from './components/CallScreen.jsx'
+import LoginScreen from './components/LoginScreen.jsx'
 import TelephonyAudio from './utils/TelephonyAudio.js'
 
-// Helper for generating/retrieving a persistent clientId
-const getPersistentClientId = () => {
-    const saved = localStorage.getItem('imessanger_client_id');
-    if (saved) return saved;
-    const newId = `User_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-    localStorage.setItem('imessanger_client_id', newId);
-    return newId;
-};
-
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authChecked, setAuthChecked] = useState(false)
   const [screen, setScreen] = useState('lobby') // 'lobby' | 'call'
-  const [clientId] = useState(getPersistentClientId)
   const [targetId, setTargetId] = useState('')
   const [onlineClients, setOnlineClients] = useState([])
   const [incomingCall, setIncomingCall] = useState(null) // { fromId }
@@ -23,36 +16,64 @@ export default function App() {
   const [audioStatus, setAudioStatus] = useState('uninitialized')
   const wsRef = useRef(null)
 
-    const sendMessage = useCallback((msg) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        console.log('<<< [SIGNAL SEND]', msg)
-        wsRef.current.send(JSON.stringify(msg))
-      }
-    }, [])
+  useEffect(() => {
+    fetch('/api/users/me')
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Not authenticated');
+      })
+      .then(user => {
+        setCurrentUser(user);
+        setAuthChecked(true);
+      })
+      .catch(() => setAuthChecked(true));
+  }, []);
 
-    // 1. Manage Global WebSocket & Permissions
-    useEffect(() => {
-        // Request standard browser permission
-        if ("Notification" in window) {
-            Notification.requestPermission().then(permission => {
-              console.log('>>> [PERM] Notifications:', permission);
-              if (permission === 'granted') TelephonyAudio.init();
-            });
-        }
+  useEffect(() => {
+    if (!currentUser) return;
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(users => {
+        setOnlineClients(prev => {
+          const filtered = users.filter(u => u.id !== currentUser.id);
+          return filtered.map(u => {
+            const existing = prev.find(p => p.id === u.id);
+            return { ...u, online: existing ? existing.online : false };
+          });
+        });
+      })
+      .catch(err => console.error('Failed to fetch users:', err));
+  }, [currentUser]);
 
-        // Track audio state
-        TelephonyAudio.onStateChange = (state) => setAudioStatus(state);
-        setAudioStatus(TelephonyAudio.getState());
+  const sendMessage = useCallback((msg) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('<<< [SIGNAL SEND]', msg)
+      wsRef.current.send(JSON.stringify(msg))
+    }
+  }, [])
 
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-        const wsUrl = `${protocol}://${window.location.host}/signal`
-        const ws = new WebSocket(wsUrl)
-        wsRef.current = ws
+  useEffect(() => {
+    if (!currentUser) return;
 
-        ws.onopen = () => {
-          console.log('>>> [WS] Connected as', clientId)
-          sendMessage({ type: 'identify', clientId })
-        }
+    if ("Notification" in window) {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') TelephonyAudio.init();
+      });
+    }
+
+    TelephonyAudio.onStateChange = (state) => setAudioStatus(state);
+    setAudioStatus(TelephonyAudio.getState());
+
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsUrl = `${protocol}://${window.location.host}/signal?userId=${encodeURIComponent(currentUser.id)}`
+    console.log('>>> [WS CONNECTING TO]', wsUrl)
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      console.log('>>> [WS CONNECTED SUCCESS] as', currentUser.id)
+      // 'identify' is no longer needed since backend uses session
+    }
 
     const handleMessage = (event) => {
       const msg = JSON.parse(event.data)
@@ -60,8 +81,8 @@ export default function App() {
 
       switch (msg.type) {
         case 'client-list':
-          // Update the list of online clients, excluding self
-          setOnlineClients(msg.clients.filter(id => id !== clientId))
+          console.log('>>> [CLIENT-LIST RECEIVED]', msg.clients)
+          setOnlineClients(msg.clients)
           break
 
         case 'incoming-call':
@@ -110,9 +131,8 @@ export default function App() {
       ws.removeEventListener('message', handleMessage)
       ws.close()
     }
-  }, [clientId, sendMessage])
+  }, [currentUser, sendMessage])
 
-  // 2. Handle Ringtones and Ringback
   useEffect(() => {
     if (incomingCall && screen === 'lobby') {
       TelephonyAudio.startRingtone()
@@ -168,6 +188,9 @@ export default function App() {
     setIsWaiting(false)
   }, [targetId, sendMessage])
 
+  if (!authChecked) return null;
+  if (!currentUser) return <LoginScreen />;
+
   return (
     <div onClick={() => TelephonyAudio.init()}>
       {incomingCall && screen === 'lobby' && (
@@ -187,14 +210,15 @@ export default function App() {
 
       {screen === 'lobby' ? (
         <LobbyScreen 
-          myId={clientId} 
+          currentUser={currentUser} 
           onlineClients={onlineClients} 
           onCall={handleCall}
           audioStatus={audioStatus}
+          ws={wsRef.current}
         />
       ) : (
         <CallScreen 
-          myId={clientId} 
+          myId={currentUser.id} 
           targetId={targetId} 
           isInitiator={isInitiator}
           isWaiting={isWaiting}

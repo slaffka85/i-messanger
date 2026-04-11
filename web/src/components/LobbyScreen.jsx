@@ -1,8 +1,12 @@
-import React from 'react'
+import React, { useState } from 'react'
 import TelephonyAudio from '../utils/TelephonyAudio'
 import styles from './LobbyScreen.module.css'
+import Chat from './Chat'
 
-export default function LobbyScreen({ myId, onlineClients, onCall, audioStatus }) {
+export default function LobbyScreen({ currentUser, onlineClients, onCall, audioStatus, ws }) {
+  const myId = currentUser.id
+  const myName = currentUser.name || currentUser.id
+  const [chatPeer, setChatPeer] = useState(null)
   return (
     <div className={styles.wrapper}>
       {/* Logo / branding */}
@@ -26,7 +30,7 @@ export default function LobbyScreen({ myId, onlineClients, onCall, audioStatus }
       <div className={styles.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <p className={styles.subtitle} style={{ margin: 0 }}>
-            Welcome, <strong>{myId}</strong>.
+            Welcome, <strong>{myName}</strong>.
           </p>
           <div style={{ display: 'flex', gap: '8px' }}>
             {/* Audio Status Badge */}
@@ -67,39 +71,73 @@ export default function LobbyScreen({ myId, onlineClients, onCall, audioStatus }
 
         <div className={styles.activeRoomsSection}>
           <div className={styles.roomsHeader}>
-            <h3 className={styles.activeRoomsTitle}>Online Clients</h3>
+            <h3 className={styles.activeRoomsTitle}>Users</h3>
           </div>
 
           {onlineClients.length > 0 ? (
             <div className={styles.roomsGrid}>
-              {onlineClients.map(clientId => (
-                <div key={clientId} className={styles.clientItem}>
+              {onlineClients.map(client => (
+                <div key={client.id} className={styles.clientItem} style={{ opacity: client.online ? 1 : 0.7 }}>
                   <div className={styles.clientInfo}>
-                    <span className={styles.roomDot} />
-                    <span className={styles.clientIdText}>{clientId}</span>
+                    <span 
+                      className={styles.roomDot} 
+                      style={{ background: client.online ? '#23d160' : '#8b8bba' }} 
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span className={styles.clientIdText}>{client.name || client.id}</span>
+                      <span style={{ fontSize: '0.7rem', color: '#8b8bba' }}>{client.online ? 'Online' : 'Offline'}</span>
+                    </div>
                   </div>
-                  <button
-                    className={styles.btnPrimarySmall}
-                    onClick={() => onCall(clientId)}
-                    title={`Call ${clientId}`}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="23 7 16 12 23 17 23 7"/>
-                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-                    </svg>
-                    Call
-                  </button>
+                  <div style={{ display: 'flex', gap: '5px' }}>
+                    <button
+                      className={styles.btnPrimarySmall}
+                      style={{ background: '#2196F3' }}
+                      onClick={() => setChatPeer({ id: client.id, name: client.name || client.id })}
+                      title={`Chat with ${client.name || client.id}`}
+                    >
+                      💬 Chat
+                    </button>
+                    <button
+                      className={styles.btnPrimarySmall}
+                      onClick={() => onCall(client.id)}
+                      disabled={!client.online}
+                      style={{ 
+                        opacity: client.online ? 1 : 0.5,
+                        cursor: client.online ? 'pointer' : 'not-allowed',
+                        filter: client.online ? 'none' : 'grayscale(1)'
+                      }}
+                      title={client.online ? `Call ${client.id}` : 'User is offline'}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="23 7 16 12 23 17 23 7"/>
+                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                      </svg>
+                      Call
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className={styles.noRooms}>No other clients online.</div>
+            <div className={styles.noRooms}>No other users found.</div>
           )}
         </div>
       </div>
 
       {/* Footer */}
       <p className={styles.footer}>End-to-end encrypted · Peer-to-peer · Direct Calls</p>
+      
+      {chatPeer && (
+        <div style={{ position: 'fixed', right: 0, top: 0, bottom: 0, zIndex: 100 }}>
+           <Chat 
+             myId={myId} 
+             targetId={chatPeer.id} 
+             targetName={chatPeer.name}
+             ws={ws} 
+             onClose={() => setChatPeer(null)}
+           />
+        </div>
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ target/
 *.jar
 *.war
 *.ear
+application-local.yml
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup

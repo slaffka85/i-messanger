@@ -1,5 +1,6 @@
 server:
   port: 8080
+  #forward-headers-strategy: framework
 
 logging:
   level:
@@ -11,7 +12,7 @@ spring:
     name: i-messanger
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/imessanger
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/imessanger}
     username: user
     password: password
     driver-class-name: org.postgresql.Driver
@@ -19,8 +20,30 @@ spring:
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
 
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:YOUR_GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET:YOUR_GOOGLE_CLIENT_SECRET}
+            scope: profile, email
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
 minio:
-  endpoint: http://localhost:9000
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
   access-key: minioadmin
   secret-key: minioadmin
   bucket-name: imessanger-storage
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+      - http://127.0.0.1:5173
+      - https://localhost:5173
+      - https://127.0.0.1:5173

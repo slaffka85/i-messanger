@@ -29,6 +29,8 @@ if (-not $localIp) {
     $localIp = "localhost"
 }
 
+$localIp = "localhost"
+
 Write-Host ">>> Local IP detected: $localIp" -ForegroundColor Green
 
 $frontendUrl = "https://${localIp}:5173/"
@@ -38,7 +40,7 @@ $backendUrl  = "http://${localIp}:8080/"
 # --- Start Backend ---
 Write-Host ">>> Starting Backend (Spring Boot) in a new window..." -ForegroundColor Cyan
 # Using single quotes for Command to avoid expansion issues
-$backendCmd = "cd '$PROJECT_ROOT'; `$env:JAVA_HOME='$JAVA_HOME_PATH'; `$env:Path='$JAVA_HOME_PATH\bin;$MAVEN_PATH;' + `$env:Path; mvn spring-boot:run -pl server"
+$backendCmd = "cd '$PROJECT_ROOT'; `$env:JAVA_HOME='$JAVA_HOME_PATH'; `$env:Path='$JAVA_HOME_PATH\bin;$MAVEN_PATH;' + `$env:Path; `$env:SPRING_PROFILES_ACTIVE='local'; mvn spring-boot:run -pl server"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd
 
 # --- Start Frontend ---
