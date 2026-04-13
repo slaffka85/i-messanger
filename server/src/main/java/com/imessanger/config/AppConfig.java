@@ -5,7 +5,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-//@ConfigurationPropertiesScan
-// @EnableConfigurationProperties
+@ConfigurationPropertiesScan(basePackages = "com.imessanger")
 public class AppConfig {
 }

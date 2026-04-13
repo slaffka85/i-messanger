@@ -10,6 +10,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - imessanger-net
 
   minio:
     image: minio/minio:latest
@@ -23,7 +25,100 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    networks:
+      - imessanger-net
+
+  imessanger-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: imessanger-server
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/imessanger
+      MINIO_ENDPOINT: http://minio:9000
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+    depends_on:
+      - postgres
+      - minio
+    ports:
+      - "8080:8080"      
+    networks:
+      - imessanger-net
+
+  imessanger-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: imessanger-web
+    depends_on:
+      - imessanger-server
+    ports:
+      - "8081:80"
+    networks:
+      - imessanger-net
+
+  imessanger-gateway:
+    image: nginx:alpine
+    container_name: imessanger-gateway
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - certbot_etc:/etc/letsencrypt
+      - certbot_var:/var/lib/letsencrypt
+      - certbot_www:/var/www/certbot
+    depends_on:
+      - imessanger-web
+      - imessanger-server
+    networks:
+      - imessanger-net
+
+  certbot:
+    image: certbot/certbot
+    container_name: imessanger-certbot
+    volumes:
+      - certbot_etc:/etc/letsencrypt
+      - certbot_var:/var/lib/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: ""
+    command: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - imessanger-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: imessanger-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - imessanger-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: imessanger-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    networks:
+      - imessanger-net
+
+networks:
+  imessanger-net:
+    driver: bridge
 
 volumes:
   postgres_data:
   minio_data:
+  certbot_etc:
+  certbot_var:
+  certbot_www:

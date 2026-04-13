@@ -66,6 +66,23 @@ export default function LobbyScreen({ currentUser, onlineClients, onCall, audioS
             >
               NOTIFS: {Notification.permission.toUpperCase()}
             </div>
+
+            {/* Logout Badge */}
+            <div 
+              onClick={() => window.location.href = '/logout'}
+              style={{ 
+                padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold',
+                background: 'rgba(255, 59, 48, 0.1)',
+                color: '#ff3b30',
+                border: '1px solid rgba(255, 59, 48, 0.2)',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                userSelect: 'none'
+              }}
+              title="Logout from iMessanger"
+            >
+              LOGOUT
+            </div>
           </div>
         </div>
 

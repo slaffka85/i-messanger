@@ -2,12 +2,13 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import LobbyScreen from './components/LobbyScreen.jsx'
 import CallScreen from './components/CallScreen.jsx'
 import LoginScreen from './components/LoginScreen.jsx'
+import AdminDashboard from './components/AdminDashboard.jsx'
 import TelephonyAudio from './utils/TelephonyAudio.js'
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [screen, setScreen] = useState('lobby') // 'lobby' | 'call'
+  const [screen, setScreen] = useState(window.location.pathname === '/dashboard' ? 'admin' : 'lobby') // 'lobby' | 'call' | 'admin'
   const [targetId, setTargetId] = useState('')
   const [onlineClients, setOnlineClients] = useState([])
   const [incomingCall, setIncomingCall] = useState(null) // { fromId }
@@ -216,7 +217,7 @@ export default function App() {
           audioStatus={audioStatus}
           ws={wsRef.current}
         />
-      ) : (
+      ) : screen === 'call' ? (
         <CallScreen 
           myId={currentUser.id} 
           targetId={targetId} 
@@ -225,6 +226,11 @@ export default function App() {
           onLeave={handleLeave} 
           ws={wsRef.current} 
         />
+      ) : (
+        <AdminDashboard onBack={() => {
+            window.history.pushState({}, '', '/');
+            setScreen('lobby');
+        }} />
       )}
     </div>
   )

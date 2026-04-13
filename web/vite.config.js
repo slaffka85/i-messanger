@@ -5,11 +5,21 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 export default defineConfig({
   plugins: [
     react(),
-    basicSsl(),
+    // basicSsl(),
   ],
   server: {
+    host: true,
     port: 5173,
-    https: true,
+    https: false,
+    allowedHosts: ['imessanger.tssv85.com'],
+    hmr: {
+      host: 'imessanger.tssv85.com',
+      protocol: 'wss',
+      clientPort: 443
+    },
+    headers: {
+      'Connection': 'close'
+    },
     proxy: {
       '/signal': {
         target: 'ws://localhost:8080',

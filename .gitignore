@@ -1,3 +1,18 @@
+# Secrets & Environment
+.env
+
+# Let's Encrypt certificates (managed by Certbot in production)
+nginx/certs/
+npm-data/
+npm-letsencrypt/
+
+# Temporary / sensitive files
+cred.txt
+cred.txt*
+scratch_*.py
+*.log
+
+
 # Java / Maven
 target/
 *.class

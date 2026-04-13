@@ -1,0 +1,128 @@
+.container {
+  min-height: 100vh;
+  padding: 40px;
+  background: radial-gradient(circle at top right, #1e1e2e, #111119);
+  color: #f1f1f8;
+  font-family: 'Inter', sans-serif;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  background: linear-gradient(135deg, #6c63ff, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.backBtn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f1f1f8;
+  padding: 10px 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.backBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 25px;
+  margin-bottom: 40px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 30px;
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(108, 99, 255, 0.3);
+}
+
+.card h3 {
+  margin: 0 0 15px 0;
+  font-size: 1.1rem;
+  opacity: 0.8;
+  font-weight: 500;
+}
+
+.value {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 20px;
+}
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 60px;
+  width: 100%;
+}
+
+.bar {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.3s ease;
+}
+
+.status {
+  font-size: 3rem;
+  font-weight: 800;
+  display: inline-block;
+}
+
+.statusUp {
+  color: #10b981;
+  text-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+}
+
+.statusDown {
+  color: #ef4444;
+  text-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+
+.details {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 20px;
+  padding: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.details h3 {
+  margin-bottom: 15px;
+}
+
+.endpoints {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.endpoints code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 8px 15px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #a78bfa;
+}

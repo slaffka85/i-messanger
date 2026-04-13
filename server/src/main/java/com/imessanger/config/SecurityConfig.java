@@ -27,26 +27,33 @@ public class SecurityConfig {
 
     private final UserRepository userRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final com.imessanger.properties.CorsProperties corsProperties;
 
-    @org.springframework.beans.factory.annotation.Value("${app.frontend.url:https://localhost:5173}")
+    @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:5173}")
     private String frontendUrl;
 
-    public SecurityConfig(UserRepository userRepository, JdbcTemplate jdbcTemplate) {
+    public SecurityConfig(UserRepository userRepository, JdbcTemplate jdbcTemplate, com.imessanger.properties.CorsProperties corsProperties) {
         this.userRepository = userRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.corsProperties = corsProperties;
     }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(csrf -> csrf.disable()) // Disabled for local dev convenience, usually enabled for form requests.
+                .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(authz -> authz
-                        .requestMatchers("/", "/login**", "/error", "/signal").permitAll()
+                        .requestMatchers("/", "/login**", "/logout**", "/error", "/signal", "/actuator/**", "/memory-test**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2Login(oauth2 -> oauth2
                         .userInfoEndpoint(userInfo -> userInfo.userService(this.oauth2UserService()))
                         .defaultSuccessUrl(frontendUrl, true))
+                .logout(logout -> logout
+                        .logoutUrl("/logout")
+                        .logoutSuccessUrl("/")
+                        .invalidateHttpSession(true)
+                        .deleteCookies("JSESSIONID"))
                 .addFilterBefore(new BypassAuthFilter(), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
@@ -62,8 +69,6 @@ public class SecurityConfig {
             String subjectId = oAuth2User.getAttribute("sub");
 
             if (email != null && subjectId != null) {
-                // Upsert user manually since we use string IDs and Spring Data JDBC might try
-                // to update non-existing rows.
                 Optional<User> existing = userRepository.findById(subjectId);
                 if (existing.isEmpty()) {
                     jdbcTemplate.update(
@@ -81,7 +86,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(frontendUrl, "http://127.0.0.1:5173"));
+        configuration.setAllowedOrigins(corsProperties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

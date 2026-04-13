@@ -1,6 +1,12 @@
 server:
   port: 8080
-  #forward-headers-strategy: framework
+  forward-headers-strategy: native
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: true
+        same-site: lax
 
 logging:
   level:
@@ -28,6 +34,8 @@ spring:
             client-id: ${GOOGLE_CLIENT_ID:YOUR_GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET:YOUR_GOOGLE_CLIENT_SECRET}
             scope: profile, email
+            # Force account selection screen
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth?prompt=select_account
 
   servlet:
     multipart:
@@ -41,9 +49,24 @@ minio:
   bucket-name: imessanger-storage
 
 app:
+  frontend:
+    url: https://imessanger.tssv85.com
   cors:
     allowed-origins:
       - http://localhost:5173
       - http://127.0.0.1:5173
       - https://localhost:5173
       - https://127.0.0.1:5173
+      - https://imessanger.tssv85.com
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}

@@ -36,6 +36,7 @@ export default function CallScreen({ myId, targetId, isInitiator, isWaiting, onL
   const [isCamOff, setIsCamOff]   = useState(false)
   const [duration, setDuration]   = useState(0)
   const [remoteReady, setRemoteReady] = useState(false)
+  const [showChat, setShowChat]   = useState(false)
 
   // ── Helpers ────────────────────────────────────────────────────
   const sendSignal = useCallback((msg) => {
@@ -383,10 +384,34 @@ export default function CallScreen({ myId, targetId, isInitiator, isWaiting, onL
               {isCamOff ? <VideoOffIcon /> : <VideoIcon />}
               <span>{isCamOff ? 'Cam On' : 'Cam Off'}</span>
             </button>
+
+            <button
+              className={`${styles.ctrlBtn} ${showChat ? styles.ctrlBtnOff : ''}`}
+              onClick={() => setShowChat(v => !v)}
+            >
+              <ChatIcon />
+              <span>Chat</span>
+            </button>
           </div>
         </div>
       </div>
-      <Chat myId={myId} targetId={targetId} ws={ws} />
+
+      {/* Chat Overlay */}
+      {showChat && (
+        <div style={{
+          position: 'fixed',
+          top: 0, right: 0, bottom: 0,
+          zIndex: 200,
+          boxShadow: '-4px 0 24px rgba(0,0,0,0.4)'
+        }}>
+          <Chat
+            myId={myId}
+            targetId={targetId}
+            ws={ws}
+            onClose={() => setShowChat(false)}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -439,6 +464,14 @@ function PhoneOffIcon() {
       <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A2 2 0 0 1 10 18"/>
       <path d="M14 2a4 4 0 0 1 4 4"/>
       <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
+  )
+}
+
+function ChatIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
     </svg>
   )
 }

@@ -229,3 +229,106 @@
   cursor: not-allowed;
   filter: grayscale(1);
 }
+
+.typingIndicatorWrapper {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  transition: opacity 0.3s ease;
+  opacity: 0;
+  pointer-events: none;
+  margin-bottom: 4px;
+}
+
+.typingVisible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.typingIndicatorChat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border-bottom-left-radius: 4px;
+}
+
+.typingDots {
+  display: flex;
+  gap: 4px;
+}
+
+.typingDots span {
+  width: 6px;
+  height: 6px;
+  background: #10b981;
+  border-radius: 50%;
+  animation: typingBounce 1s infinite ease-in-out;
+}
+
+.typingDots span:nth-child(2) { animation-delay: 0.2s; }
+.typingDots span:nth-child(3) { animation-delay: 0.4s; }
+
+.typingText {
+  font-size: 0.8rem;
+  color: #10b981;
+  font-weight: 500;
+}
+
+@keyframes typingBounce {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(-4px); opacity: 1; }
+}
+
+.emojiBtn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.emojiBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.emojiPicker {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  background: rgba(30, 30, 45, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px;
+  border-radius: 12px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes popIn {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.emojiItem {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 8px;
+  transition: transform 0.1s, background 0.1s;
+}
+
+.emojiItem:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.2);
+}

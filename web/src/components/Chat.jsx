@@ -6,14 +6,27 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
   const [inputText, setInputText] = useState('');
   const [file, setFile] = useState(null);
   const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const [targetIsTyping, setTargetIsTyping] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  const emojis = ['😀', '😂', '😍', '👍', '🔥', '🎉', '💡', '🤔', '👀', '✨', '🙌', '😢', '😎', '❤️', '✅', '🚀'];
 
   useEffect(() => {
     if (!targetId) return;
     fetch(`/api/messages/${targetId}`)
       .then(res => res.json())
-      .then(data => setMessages(data))
+      .then(data => {
+        setMessages(data);
+        // Mark all unread incoming messages as read
+        data.forEach(m => {
+          if (m.recipientId === myId && m.status !== 'READ' && ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'message-read', messageId: m.id }));
+          }
+        });
+      })
       .catch(console.error);
-  }, [targetId]);
+  }, [targetId, ws, myId]);
 
   useEffect(() => {
     if (!ws) return;
@@ -21,7 +34,14 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
       const msg = JSON.parse(event.data);
       
       if (msg.type === 'chat-message') {
-        if (msg.fromId === targetId || msg.fromId === myId) {
+        const isFromTarget = msg.fromId === targetId;
+        const isFromMe = msg.fromId === myId;
+        
+        if (isFromTarget || isFromMe) {
+          if (isFromTarget && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'message-read', messageId: msg.id }));
+          }
+          
           setMessages(prev => [...prev, {
             id: msg.id || Date.now(),
             senderId: msg.fromId,
@@ -30,8 +50,12 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
             fileId: msg.fileId,
             fileName: msg.fileName,
             createdAt: msg.createdAt || new Date().toISOString(),
-            status: msg.status || 'SENT'
+            status: 'READ' // Since we just sent a read ack, it's read by us
           }]);
+        }
+      } else if (msg.type === 'typing') {
+        if (msg.fromId === targetId) {
+          setTargetIsTyping(msg.payload?.isTyping || false);
         }
       } else if (msg.type === 'message-sent') {
           // Update temp ID with real DB ID
@@ -43,6 +67,11 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
           setMessages(prev => prev.map(m => 
             m.id === msg.id ? { ...m, status: 'DELIVERED' } : m
           ));
+      } else if (msg.type === 'message-read') {
+          // Update status to READ
+          setMessages(prev => prev.map(m => 
+            m.id === msg.id ? { ...m, status: 'READ' } : m
+          ));
       }
     };
     ws.addEventListener('message', handleMessage);
@@ -51,7 +80,7 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, targetIsTyping]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -87,7 +116,15 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
       fileName: attachedFileName
     };
 
-    ws.send(JSON.stringify(newMsg));
+    try {
+      ws.send(JSON.stringify(newMsg));
+    } catch (err) {
+      console.error('Failed to send message', err);
+      setMessages(prev => prev.map(m => 
+        m.id === tempId ? { ...m, status: 'FAILED' } : m
+      ));
+      return;
+    }
 
     setMessages(prev => [...prev, {
       id: tempId,
@@ -97,11 +134,48 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
       fileId: attachedFileId,
       fileName: attachedFileName,
       createdAt: new Date().toISOString(),
-      status: 'SENT'
+      status: 'PENDING' // Start as pending
     }]);
+
+    // Simple timeout for confirmation
+    setTimeout(() => {
+      setMessages(prev => prev.map(m => 
+        (m.id === tempId && m.status === 'PENDING') ? { ...m, status: 'FAILED' } : m
+      ));
+    }, 5000);
 
     setInputText('');
     setFile(null);
+    setShowEmojiPicker(false);
+  };
+
+  const handleInputChange = (e) => {
+    setInputText(e.target.value);
+    
+    // Send typing event
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ 
+        type: 'typing', 
+        targetId, 
+        payload: { isTyping: true } 
+      }));
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ 
+          type: 'typing', 
+          targetId, 
+          payload: { isTyping: false } 
+        }));
+      }
+    }, 3000);
+  };
+
+  const addEmoji = (emoji) => {
+    setInputText(prev => prev + emoji);
+    setShowEmojiPicker(false);
   };
 
   const formatTime = (isoString) => {
@@ -112,9 +186,11 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
   };
 
   const renderStatus = (status) => {
-    if (status === 'READ') return <span style={{ color: '#4fc3f7', marginLeft: '4px', fontSize: '10px' }}>✔✔</span>;
-    if (status === 'DELIVERED') return <span style={{ color: 'rgba(255,255,255,0.6)', marginLeft: '4px', fontSize: '10px' }}>✔✔</span>;
-    return <span style={{ color: 'rgba(255,255,255,0.4)', marginLeft: '4px', fontSize: '10px' }}>✔</span>;
+    if (status === 'READ') return <span style={{ color: '#4fc3f7', marginLeft: '4px', fontSize: '10px' }} title="Read">✔✔</span>;
+    if (status === 'DELIVERED') return <span style={{ color: 'rgba(255,255,255,0.6)', marginLeft: '4px', fontSize: '10px' }} title="Delivered">✔✔</span>;
+    if (status === 'FAILED') return <span style={{ color: '#ff5252', marginLeft: '4px', fontSize: '10px' }} title="Failed to send">⚠</span>;
+    if (status === 'PENDING') return <span style={{ color: 'rgba(255,255,255,0.3)', marginLeft: '4px', fontSize: '10px' }} title="Sending...">⏳</span>;
+    return <span style={{ color: 'rgba(255,255,255,0.4)', marginLeft: '4px', fontSize: '10px' }} title="Sent">✔</span>;
   };
 
   return (
@@ -122,7 +198,9 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
       <div className={styles.header}>
         <div className={styles.headerInfo}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
-          <span className={styles.headerTitle}>{targetName || targetId}</span>
+          <div>
+            <div className={styles.headerTitle}>{targetName || targetId}</div>
+          </div>
         </div>
         <button onClick={onClose} className={styles.closeBtn} title="Close Chat">&times;</button>
       </div>
@@ -157,6 +235,16 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
             </div>
           );
         })}
+        <div className={`${styles.typingIndicatorWrapper} ${targetIsTyping ? styles.typingVisible : ''}`}>
+          <div className={styles.typingIndicatorChat}>
+            <div className={styles.typingDots}>
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <span className={styles.typingText}>{targetName || 'Someone'} is typing...</span>
+          </div>
+        </div>
         <div ref={messagesEndRef} />
       </div>
 
@@ -175,10 +263,24 @@ export default function Chat({ myId, targetId, targetName, ws, onClose }) {
           <input 
             type="text" 
             value={inputText} 
-            onChange={e => setInputText(e.target.value)} 
+            onChange={handleInputChange} 
             placeholder="Type a message..." 
             className={styles.textInput} 
           />
+          <button 
+            type="button" 
+            className={styles.emojiBtn} 
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          >
+            😊
+          </button>
+          {showEmojiPicker && (
+            <div className={styles.emojiPicker}>
+              {emojis.map(e => (
+                <button key={e} type="button" onClick={() => addEmoji(e)} className={styles.emojiItem}>{e}</button>
+              ))}
+            </div>
+          )}
           <button type="submit" disabled={!inputText.trim() && !file} className={styles.sendBtn}>
             🚀
           </button>
